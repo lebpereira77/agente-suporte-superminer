@@ -52,6 +52,7 @@ async def _handle(payload: dict, event_hint: str | None, db: AsyncSession) -> di
         return {"status": "ignored"}
 
     texto = texto.strip()
+    print(f"[MSG] de={phone} eduardo={_EDUARDO} match={phone==_EDUARDO} texto={texto[:40]!r}")
 
     if phone == _EDUARDO:
         if await _processar_admin(phone, texto, db):
