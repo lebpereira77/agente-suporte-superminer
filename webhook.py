@@ -25,19 +25,20 @@ def _extrair_texto(data: dict) -> str | None:
     )
 
 
-@router.post("/webhook/whatsapp")
-async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    try:
-        payload = await request.json()
-    except Exception:
-        return {"status": "ignored"}
-
-    if payload.get("event") != "messages.upsert":
+async def _handle(payload: dict, event_hint: str | None, db: AsyncSession) -> dict:
+    """Processa o payload normalizado. event_hint vem do path quando webhook_by_events=true."""
+    # Normaliza o evento: body tem prioridade; fallback para path hint
+    event = payload.get("event") or event_hint or ""
+    # Evolution API usa tanto "messages.upsert" quanto "MESSAGES_UPSERT"
+    if event.upper().replace(".", "_").replace("-", "_") != "MESSAGES_UPSERT":
         return {"status": "ignored"}
 
     data = payload.get("data", {})
-    key = data.get("key", {})
+    # webhook_by_events=true: data está direto no payload root
+    if not data and "key" in payload:
+        data = payload
 
+    key = data.get("key", {})
     if key.get("fromMe"):
         return {"status": "ignored"}
 
@@ -52,12 +53,10 @@ async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db))
 
     texto = texto.strip()
 
-    # Comandos de Eduardo
     if phone == _EDUARDO:
         if await _processar_admin(phone, texto, db):
             return {"status": "ok", "admin": True}
 
-    # Verificar modo humano
     result = await db.execute(select(SuporteConversa).where(SuporteConversa.phone == phone))
     conversa = result.scalar_one_or_none()
 
@@ -65,7 +64,6 @@ async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db))
         await enviar_mensagem(_EDUARDO, f"💬 Mensagem de {phone}:\n{texto}")
         return {"status": "ok", "forwarded": True}
 
-    # Agente Claude
     try:
         resposta = await suporte_agent.processar_mensagem(phone, texto, db)
         await enviar_mensagem(phone, resposta)
@@ -74,6 +72,27 @@ async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db))
         await enviar_mensagem(phone, "Desculpe, tive um problema técnico. Tente novamente.")
 
     return {"status": "ok"}
+
+
+@router.post("/webhook/whatsapp")
+async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"status": "ignored"}
+    return await _handle(payload, None, db)
+
+
+@router.post("/webhook/whatsapp/{event_path:path}")
+async def whatsapp_webhook_by_event(
+    event_path: str, request: Request, db: AsyncSession = Depends(get_db)
+):
+    # webhook_by_events=true envia para /webhook/whatsapp/messages-upsert etc.
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"status": "ignored"}
+    return await _handle(payload, event_path, db)
 
 
 async def _processar_admin(phone: str, texto: str, db: AsyncSession) -> bool:
