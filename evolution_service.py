@@ -17,7 +17,8 @@ async def enviar_mensagem(numero: str, texto: str) -> bool:
         return False
 
     url = f"{settings.evolution_api_url.rstrip('/')}/message/sendText/{settings.evolution_instance}"
-    payload = {"number": numero, "text": texto}
+    # Evolution API v1: textMessage wrapper; v2 uses just "text"
+    payload = {"number": numero, "textMessage": {"text": texto}}
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
