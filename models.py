@@ -19,6 +19,7 @@ class SuporteConversa(Base):
     __tablename__ = "suporte_conversas"
 
     phone = Column(String(20), primary_key=True)
+    remote_jid = Column(String(80), nullable=True)    # JID completo (@s.whatsapp.net ou @lid)
     historico = Column(Text, nullable=True)          # JSON [{role, content}]
     modo_humano = Column(Boolean, default=False)      # True = bot pausado
     nome_usuario = Column(String(255), nullable=True)
