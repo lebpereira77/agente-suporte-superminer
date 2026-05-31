@@ -1,13 +1,13 @@
-"""Webhook da Evolution API."""
+"""Webhook Z-API — recebe mensagens WhatsApp."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import get_db
-from evolution_service import enviar_mensagem, extrair_phone, is_grupo
+from evolution_service import enviar_mensagem, is_grupo
 from models import SuporteConversa
 import suporte_agent
 
@@ -16,99 +16,91 @@ router = APIRouter()
 _EDUARDO = settings.suporte_eduardo_phone
 
 
-def _extrair_texto(data: dict) -> str | None:
-    msg = data.get("message", {})
+def _extrair_texto(payload: dict) -> str | None:
+    """Extrai texto de mensagens Z-API (text, image caption, document caption)."""
+    text_obj = payload.get("text") or {}
     return (
-        msg.get("conversation")
-        or msg.get("extendedTextMessage", {}).get("text")
+        text_obj.get("message")
+        or payload.get("caption")
         or None
     )
 
 
-async def _handle(payload: dict, event_hint: str | None, db: AsyncSession) -> dict:
-    """Processa o payload normalizado. event_hint vem do path quando webhook_by_events=true."""
-    event = payload.get("event") or event_hint or ""
-    if event.upper().replace(".", "_").replace("-", "_") != "MESSAGES_UPSERT":
+@router.post("/webhook/whatsapp")
+async def whatsapp_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    client_token: str | None = Header(default=None, alias="Client-Token"),
+):
+    # Valida security token se configurado
+    if settings.zapi_security_token and client_token != settings.zapi_security_token:
+        return {"status": "unauthorized"}
+
+    try:
+        payload = await request.json()
+    except Exception:
         return {"status": "ignored"}
 
-    data = payload.get("data", {})
-    if not data and "key" in payload:
-        data = payload
+    return await _handle(payload, db)
 
-    key = data.get("key", {})
-    if key.get("fromMe"):
+
+async def _handle(payload: dict, db: AsyncSession) -> dict:
+    # Z-API envia vários tipos; só processa mensagens recebidas de texto
+    tipo = payload.get("type", "")
+
+    # Ignorar mensagens enviadas pelo bot, status do servidor, etc.
+    if payload.get("fromMe") or tipo not in ("ReceivedCallback",):
         return {"status": "ignored"}
 
-    remote_jid = key.get("remoteJid", "")
-    if is_grupo(remote_jid):
+    phone: str = payload.get("phone", "")
+    if not phone:
         return {"status": "ignored"}
 
-    phone = extrair_phone(remote_jid)
-    texto = _extrair_texto(data)
+    # Ignorar grupos e broadcasts
+    if is_grupo(phone):
+        return {"status": "ignored"}
+
+    texto = _extrair_texto(payload)
     if not texto or not texto.strip():
         return {"status": "ignored"}
 
     texto = texto.strip()
-    push_name: str | None = data.get("pushName")
-    print(f"[MSG] de={phone} jid={remote_jid} pushName={push_name!r} texto={texto[:40]!r}")
+    push_name: str | None = payload.get("senderName") or payload.get("chatName")
 
-    # Recupera ou cria conversa, atualizando remote_jid e push_name
+    print(f"[MSG] de={phone} pushName={push_name!r} texto={texto[:40]!r}")
+
+    # Recupera ou cria conversa
     result = await db.execute(select(SuporteConversa).where(SuporteConversa.phone == phone))
     conversa = result.scalar_one_or_none()
 
     if conversa is None:
-        conversa = SuporteConversa(phone=phone, remote_jid=remote_jid, nome_usuario=push_name)
+        conversa = SuporteConversa(phone=phone, remote_jid=phone, nome_usuario=push_name)
         db.add(conversa)
     else:
-        if conversa.remote_jid != remote_jid:
-            conversa.remote_jid = remote_jid
         if push_name and not conversa.nome_usuario:
             conversa.nome_usuario = push_name
 
-    # reply_to usa o JID original (inclui @lid quando necessário)
-    reply_to = remote_jid
-
     if phone == _EDUARDO:
-        if await _processar_admin(phone, reply_to, push_name, texto, db):
+        if await _processar_admin(phone, push_name, texto, db):
             return {"status": "ok", "admin": True}
 
     if conversa.modo_humano:
         nome = conversa.nome_usuario or phone
-        await enviar_mensagem(_EDUARDO, f"💬 {nome} ({phone}):\n{texto}", push_name=None)
+        await enviar_mensagem(_EDUARDO, f"💬 {nome} ({phone}):\n{texto}")
         return {"status": "ok", "forwarded": True}
 
     try:
         resposta = await suporte_agent.processar_mensagem(phone, texto, db)
-        await enviar_mensagem(reply_to, resposta, push_name=push_name)
+        await enviar_mensagem(phone, resposta)
     except Exception as e:
         print(f"[ERROR] {e}")
-        await enviar_mensagem(reply_to, "Desculpe, tive um problema técnico. Tente novamente.", push_name=push_name)
+        await enviar_mensagem(phone, "Desculpe, tive um problema técnico. Tente novamente.")
 
     return {"status": "ok"}
 
 
-@router.post("/webhook/whatsapp")
-async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    try:
-        payload = await request.json()
-    except Exception:
-        return {"status": "ignored"}
-    return await _handle(payload, None, db)
-
-
-@router.post("/webhook/whatsapp/{event_path:path}")
-async def whatsapp_webhook_by_event(
-    event_path: str, request: Request, db: AsyncSession = Depends(get_db)
-):
-    try:
-        payload = await request.json()
-    except Exception:
-        return {"status": "ignored"}
-    return await _handle(payload, event_path, db)
-
-
 async def _processar_admin(
-    phone: str, reply_to: str, push_name: str | None, texto: str, db: AsyncSession
+    phone: str, push_name: str | None, texto: str, db: AsyncSession
 ) -> bool:
     cmd = texto.strip().lower()
 
@@ -123,7 +115,7 @@ async def _processar_admin(
             linhas = [f"• {c.phone} — {c.nome_usuario or 'sem nome'}" for c in pausadas]
             msg = f"*Conversas pausadas ({len(pausadas)}):*\n" + "\n".join(linhas)
             msg += "\n\nPara retomar: *!retomar <phone>*"
-        await enviar_mensagem(reply_to, msg, push_name=push_name)
+        await enviar_mensagem(phone, msg)
         return True
 
     if cmd.startswith("!retomar "):
@@ -131,14 +123,12 @@ async def _processar_admin(
         result = await db.execute(select(SuporteConversa).where(SuporteConversa.phone == target))
         conversa = result.scalar_one_or_none()
         if not conversa:
-            await enviar_mensagem(reply_to, f"Conversa {target} não encontrada.", push_name=push_name)
+            await enviar_mensagem(phone, f"Conversa {target} não encontrada.")
         else:
             conversa.modo_humano = False
             await db.commit()
-            await enviar_mensagem(reply_to, f"✅ Bot reativado para {target}.", push_name=push_name)
-            target_jid = conversa.remote_jid or target
-            await enviar_mensagem(target_jid, "Olá! O suporte automático está de volta. Como posso ajudar?",
-                                  push_name=conversa.nome_usuario)
+            await enviar_mensagem(phone, f"✅ Bot reativado para {target}.")
+            await enviar_mensagem(target, "Olá! O suporte automático está de volta. Como posso ajudar?")
         return True
 
     return False

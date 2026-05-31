@@ -11,10 +11,12 @@ class Settings(BaseSettings):
     )
     anthropic_api_key: str = Field(default="", env="ANTHROPIC_API_KEY")
 
-    # Evolution API
-    evolution_api_url: str = Field(default="", env="EVOLUTION_API_URL")
-    evolution_api_key: str = Field(default="", env="EVOLUTION_API_KEY")
-    evolution_instance: str = Field(default="superminer", env="EVOLUTION_INSTANCE")
+    # Z-API
+    zapi_instance_id: str = Field(default="", env="ZAPI_INSTANCE_ID")
+    zapi_token: str = Field(default="", env="ZAPI_TOKEN")
+    # Security token opcional — Z-API envia no header Client-Token para validar origem do webhook
+    zapi_security_token: str = Field(default="", env="ZAPI_SECURITY_TOKEN")
+    zapi_base_url: str = Field(default="https://api.z-api.io", env="ZAPI_BASE_URL")
 
     # Número de Eduardo para escalação (E.164 sem +)
     suporte_eduardo_phone: str = Field(default="5512981116444", env="SUPORTE_EDUARDO_PHONE")
