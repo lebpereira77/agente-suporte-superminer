@@ -45,10 +45,9 @@ async def whatsapp_webhook(
 
 
 async def _handle(payload: dict, db: AsyncSession) -> dict:
-    # Z-API envia vários tipos; só processa mensagens recebidas de texto
     tipo = payload.get("type", "")
+    print(f"[WEBHOOK] type={tipo!r} fromMe={payload.get('fromMe')} phone={payload.get('phone')!r} keys={list(payload.keys())[:8]}")
 
-    # Ignorar mensagens enviadas pelo bot, status do servidor, etc.
     if payload.get("fromMe") or tipo not in ("ReceivedCallback",):
         return {"status": "ignored"}
 
