@@ -38,7 +38,6 @@ async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db))
 
 async def _handle(payload: dict, db: AsyncSession) -> dict:
     tipo = payload.get("type", "")
-    print(f"[WEBHOOK] type={tipo!r} fromMe={payload.get('fromMe')} phone={payload.get('phone')!r} keys={list(payload.keys())[:8]}")
 
     if payload.get("fromMe") or tipo not in ("ReceivedCallback",):
         return {"status": "ignored"}
