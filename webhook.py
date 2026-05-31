@@ -32,8 +32,11 @@ async def whatsapp_webhook(
     db: AsyncSession = Depends(get_db),
     client_token: str | None = Header(default=None, alias="Client-Token"),
 ):
+    print(f"[WEBHOOK-IN] client_token={client_token!r} configured={bool(settings.zapi_security_token)}")
+
     # Valida security token se configurado
     if settings.zapi_security_token and client_token != settings.zapi_security_token:
+        print(f"[WEBHOOK-IN] token mismatch — ignorando (recebido={client_token!r})")
         return {"status": "unauthorized"}
 
     try:
