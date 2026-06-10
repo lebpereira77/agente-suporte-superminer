@@ -26,6 +26,33 @@ def _extrair_texto(payload: dict) -> str | None:
     )
 
 
+_PADROES_AUTO_REPLY = [
+    r"mensagem autom[áa]tica",
+    r"resposta autom[áa]tica",
+    r"auto.?reply",
+    r"bot\b",
+    r"ausente",
+    r"fora do escrit[óo]rio",
+    r"n[ãa]o estou dispon[íi]vel",
+    r"em reuni[ãa]o",
+    r"em f[ée]rias",
+    r"hor[áa]rio de atendimento",
+    r"whatsapp business",
+    r"este [ée] um n[úu]mero (de|do)",
+    r"atendimento autom[áa]tico",
+    r"obrigad[oa] por entrar em contato.*equipe",
+    r"em breve (entraremos|retornaremos|iremos)",
+    r"nossa equipe.*retornar[áa]",
+]
+
+import re as _re
+_RE_AUTO = _re.compile("|".join(_PADROES_AUTO_REPLY), _re.IGNORECASE)
+
+
+def _e_mensagem_automatica(texto: str) -> bool:
+    return bool(_RE_AUTO.search(texto))
+
+
 @router.post("/webhook/whatsapp")
 async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     try:
@@ -58,6 +85,11 @@ async def _handle(payload: dict, db: AsyncSession) -> dict:
     push_name: str | None = payload.get("senderName") or payload.get("chatName")
 
     print(f"[MSG] de={phone} pushName={push_name!r} texto={texto[:40]!r}")
+
+    # Ignorar respostas automáticas (bots, ausências, WhatsApp Business)
+    if _e_mensagem_automatica(texto):
+        print(f"[AUTO-REPLY] ignorado de={phone}")
+        return {"status": "ignored", "reason": "auto_reply"}
 
     # Recupera ou cria conversa
     result = await db.execute(select(SuporteConversa).where(SuporteConversa.phone == phone))
