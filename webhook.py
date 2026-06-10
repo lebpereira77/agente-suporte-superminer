@@ -63,6 +63,9 @@ async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db))
     return await _handle(payload, db)
 
 
+AGENTE_ATIVO = False  # temporariamente desativado — só disparo de mailing
+
+
 async def _handle(payload: dict, db: AsyncSession) -> dict:
     tipo = payload.get("type", "")
 
@@ -110,6 +113,10 @@ async def _handle(payload: dict, db: AsyncSession) -> dict:
         nome = conversa.nome_usuario or phone
         await enviar_mensagem(_EDUARDO, f"💬 {nome} ({phone}):\n{texto}")
         return {"status": "ok", "forwarded": True}
+
+    if not AGENTE_ATIVO:
+        print(f"[AGENTE DESATIVADO] mensagem de {phone} ignorada")
+        return {"status": "ignored", "reason": "agente_desativado"}
 
     try:
         resposta = await suporte_agent.processar_mensagem(phone, texto, db)
