@@ -53,3 +53,16 @@ class SessaoMineracao(Base):
     total_produtos = Column(Integer, nullable=True)
     criado_em = Column(DateTime, nullable=True)
     organization_id = Column(String(36), nullable=True)
+
+
+# ── Opt-out da campanha WhatsApp oficial (Cloud API) ───────────────────────────
+
+class WhatsappOptout(Base):
+    """Números que pediram para não receber mais mensagens da campanha oficial.
+    Consultada pelo script execution/disparar_whatsapp_oficial.py antes de cada disparo."""
+
+    __tablename__ = "whatsapp_optout"
+
+    numero = Column(String(20), primary_key=True)
+    motivo = Column(String(255), nullable=True)
+    criado_em = Column(DateTime, default=_now)

@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # Número de Eduardo para escalação (E.164 sem +)
     suporte_eduardo_phone: str = Field(default="5512981116444", env="SUPORTE_EDUARDO_PHONE")
 
+    # Webhook oficial (Cloud API) — opt-out da campanha de disparo
+    meta_verify_token: str = Field(default="", env="META_VERIFY_TOKEN")
+    meta_optout_secret: str = Field(default="", env="META_OPTOUT_SECRET")
+
     class Config:
         env_file = ".env"
 
