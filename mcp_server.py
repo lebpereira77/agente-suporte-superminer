@@ -55,7 +55,6 @@ mcp = FastMCP(
         "verdade, então nunca confirme 'mensagem entregue' ao usuário só por causa do status "
         "200, deixe claro que é 'aceito pela API', entrega real não é garantida por esse status."
     ),
-    stateless_http=True,
     streamable_http_path="/",  # evita URL final tipo /mcp/<segredo>/mcp — fica só /mcp/<segredo>
 )
 
