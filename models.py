@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import uuid4
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 
 from database import Base
+
+
+def _uuid() -> str:
+    return str(uuid4())
 
 
 def _now() -> datetime:
@@ -65,4 +70,21 @@ class WhatsappOptout(Base):
 
     numero = Column(String(20), primary_key=True)
     motivo = Column(String(255), nullable=True)
+    criado_em = Column(DateTime, default=_now)
+
+
+class MensagemOficialEnviada(Base):
+    """Log de envios feitos via mcp_server.py (agente no claude.ai). Independente do
+    envios_oficial_log.csv local usado por execution/disparar_whatsapp_oficial.py —
+    os dois não se enxergam, cada um deduplica só dentro do próprio caminho de envio."""
+
+    __tablename__ = "whatsapp_mensagens_enviadas"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    numero = Column(String(20), index=True)
+    tipo = Column(String(20))  # template | texto
+    template_ou_resumo = Column(String(255), nullable=True)
+    status = Column(String(20))  # enviado | erro
+    message_id = Column(String(255), nullable=True)
+    detalhe = Column(Text, nullable=True)
     criado_em = Column(DateTime, default=_now)

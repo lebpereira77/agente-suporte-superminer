@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     meta_verify_token: str = Field(default="", env="META_VERIFY_TOKEN")
     meta_optout_secret: str = Field(default="", env="META_OPTOUT_SECRET")
 
+    # WhatsApp Cloud API oficial — usado pelo servidor MCP (mcp_server.py)
+    meta_access_token: str = Field(default="", env="META_ACCESS_TOKEN")
+    meta_phone_number_id: str = Field(default="", env="META_PHONE_NUMBER_ID")
+    meta_waba_id: str = Field(default="", env="META_WABA_ID")
+    meta_graph_api_version: str = Field(default="v20.0", env="META_GRAPH_API_VERSION")
+
+    # Segmento secreto da URL do servidor MCP — funciona como chave de acesso
+    # (ex: https://.../mcp/<mcp_secret_path>). Gere algo longo e aleatório.
+    mcp_secret_path: str = Field(default="", env="MCP_SECRET_PATH")
+
     class Config:
         env_file = ".env"
 
