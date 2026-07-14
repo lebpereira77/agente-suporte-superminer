@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy import select
 
 from config import settings
@@ -27,8 +28,21 @@ from models import MensagemOficialEnviada, WhatsappOptout
 
 FUSO = ZoneInfo("America/Sao_Paulo")
 
+# Proteção de DNS rebinding do SDK exige uma allowlist explícita de Host — sem isso
+# todo request real (fora localhost) volta 421 "Invalid Host header".
+_TRANSPORT_SECURITY = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+    allowed_hosts=[
+        "agente-suporte-superminer-production.up.railway.app",
+        "localhost:8123",
+        "127.0.0.1:8123",
+    ],
+    allowed_origins=["https://claude.ai", "https://*.claude.ai"],
+)
+
 mcp = FastMCP(
     name="whatsapp-oficial-super-miner",
+    transport_security=_TRANSPORT_SECURITY,
     instructions=(
         "Ferramentas para gerenciar a conta WhatsApp Business oficial (Cloud API) do Super "
         "Miner. Regras obrigatórias: (1) antes de qualquer campanha para uma lista, chame "
