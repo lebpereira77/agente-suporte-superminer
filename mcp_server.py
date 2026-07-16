@@ -5,9 +5,12 @@ Reaproveita o token/WABA/número já configurados para o disparo em lote
 permite ao agente no app do Claude executar ações de verdade (enviar mensagem, checar
 métricas, gerenciar opt-out) em vez de só explicar o que fazer.
 
-Autenticação: sem OAuth — o segredo fica embutido no próprio caminho da URL
-(MCP_SECRET_PATH, montado em main.py). Trate essa URL como uma senha.
-"""
+Autenticação: duas camadas. (1) segredo embutido no caminho da URL (MCP_SECRET_PATH,
+montado em main.py) — trate essa URL como senha. (2) OAuth 2.1 (Dynamic Client Registration
++ Authorization Code + PKCE) por cima, implementado em oauth_provider.py, exigido pelo
+claude.ai pra registrar o Connector — como é servidor single-user, o /authorize aprova
+qualquer client automaticamente (sem tela de login), então a camada (1) é o que realmente
+impede acesso de quem não tem a URL (ver docstring de oauth_provider.py)."""
 from __future__ import annotations
 
 import asyncio
@@ -18,6 +21,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy import select
@@ -25,8 +29,15 @@ from sqlalchemy import select
 from config import settings
 from database import AsyncSessionLocal
 from models import MensagemOficialEnviada, WhatsappOptout
+from oauth_provider import SingleUserOAuthProvider
 
 FUSO = ZoneInfo("America/Sao_Paulo")
+
+# Auth (/register, /authorize, /token) e as ferramentas MCP vivem no mesmo sub-app,
+# montado em main.py sob /mcp/<segredo> — então issuer e resource apontam pra lá, não pra
+# raiz do domínio.
+_BASE_URL = f"https://agente-suporte-superminer-production.up.railway.app/mcp/{settings.mcp_secret_path}"
+_MCP_URL = f"{_BASE_URL}/"
 
 # Proteção de DNS rebinding do SDK exige uma allowlist explícita de Host — sem isso
 # todo request real (fora localhost) volta 421 "Invalid Host header".
@@ -43,6 +54,17 @@ _TRANSPORT_SECURITY = TransportSecuritySettings(
 mcp = FastMCP(
     name="whatsapp-oficial-super-miner",
     transport_security=_TRANSPORT_SECURITY,
+    auth_server_provider=SingleUserOAuthProvider(),
+    auth=AuthSettings(
+        issuer_url=_BASE_URL,
+        resource_server_url=_MCP_URL,
+        client_registration_options=ClientRegistrationOptions(
+            enabled=True,
+            valid_scopes=["whatsapp"],
+            default_scopes=["whatsapp"],
+        ),
+        revocation_options=RevocationOptions(enabled=True),
+    ),
     instructions=(
         "Ferramentas para gerenciar a conta WhatsApp Business oficial (Cloud API) do Super "
         "Miner. Regras obrigatórias: (1) antes de qualquer campanha para uma lista, chame "
@@ -55,7 +77,12 @@ mcp = FastMCP(
         "verdade, então nunca confirme 'mensagem entregue' ao usuário só por causa do status "
         "200, deixe claro que é 'aceito pela API', entrega real não é garantida por esse status."
     ),
-    streamable_http_path="/",  # evita URL final tipo /mcp/<segredo>/mcp — fica só /mcp/<segredo>
+    # Precisa ser IDÊNTICO ao path de resource_server_url acima — o SDK constrói as rotas de
+    # descoberta OAuth (.well-known/...) a partir de resource_server_url, e esse app é montado
+    # na RAIZ do FastAPI (main.py), sem prefixo adicional. Se os dois divergirem ou se algum
+    # prefixo for somado por fora, o path da descoberta (.well-known) fica duplicado/errado e
+    # o claude.ai não consegue completar o handshake OAuth (já vi isso acontecer testando).
+    streamable_http_path=f"/mcp/{settings.mcp_secret_path}/",
 )
 
 GRAPH_BASE = f"https://graph.facebook.com/{settings.meta_graph_api_version}"

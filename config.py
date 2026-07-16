@@ -31,8 +31,10 @@ class Settings(BaseSettings):
     meta_waba_id: str = Field(default="", env="META_WABA_ID")
     meta_graph_api_version: str = Field(default="v20.0", env="META_GRAPH_API_VERSION")
 
-    # Segmento secreto da URL do servidor MCP — funciona como chave de acesso
-    # (ex: https://.../mcp/<mcp_secret_path>). Gere algo longo e aleatório.
+    # Segmento secreto da URL do servidor MCP — primeira camada de proteção, antes do
+    # OAuth (oauth_provider.py aprova qualquer client automaticamente, então sem isso
+    # qualquer um que descobrisse a URL base conseguiria se autenticar). Gere algo longo
+    # e aleatório. Ex: https://.../mcp/<mcp_secret_path>/
     mcp_secret_path: str = Field(default="", env="MCP_SECRET_PATH")
 
     class Config:

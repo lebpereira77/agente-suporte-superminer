@@ -88,3 +88,54 @@ class MensagemOficialEnviada(Base):
     message_id = Column(String(255), nullable=True)
     detalhe = Column(Text, nullable=True)
     criado_em = Column(DateTime, default=_now)
+
+
+# ── OAuth Authorization Server mínimo (oauth_provider.py) ──────────────────────
+# Exigido pelo claude.ai pra registrar o Connector MCP (Dynamic Client Registration).
+# Uso pessoal/single-user — sem tela de login, qualquer client que se registrar é
+# aprovado automaticamente (ver oauth_provider.py pro porquê disso ser aceitável aqui).
+
+class OAuthClient(Base):
+    __tablename__ = "oauth_clients"
+
+    client_id = Column(String(64), primary_key=True)
+    client_secret = Column(String(128), nullable=True)
+    redirect_uris = Column(Text)  # JSON list[str]
+    grant_types = Column(Text)  # JSON list[str]
+    response_types = Column(Text)  # JSON list[str]
+    token_endpoint_auth_method = Column(String(32), nullable=True)
+    scope = Column(String(255), nullable=True)
+    client_name = Column(String(255), nullable=True)
+    criado_em = Column(DateTime, default=_now)
+
+
+class OAuthAuthCode(Base):
+    __tablename__ = "oauth_auth_codes"
+
+    code = Column(String(128), primary_key=True)
+    client_id = Column(String(64), index=True)
+    code_challenge = Column(String(255))
+    redirect_uri = Column(String(500))
+    redirect_uri_provided_explicitly = Column(Boolean, default=True)
+    scopes = Column(Text)  # JSON list[str]
+    resource = Column(String(500), nullable=True)
+    expires_at = Column(Integer)
+
+
+class OAuthAccessTok(Base):
+    __tablename__ = "oauth_access_tokens"
+
+    token = Column(String(128), primary_key=True)
+    client_id = Column(String(64), index=True)
+    scopes = Column(Text)
+    resource = Column(String(500), nullable=True)
+    expires_at = Column(Integer, nullable=True)
+
+
+class OAuthRefreshTok(Base):
+    __tablename__ = "oauth_refresh_tokens"
+
+    token = Column(String(128), primary_key=True)
+    client_id = Column(String(64), index=True)
+    scopes = Column(Text)
+    expires_at = Column(Integer, nullable=True)
