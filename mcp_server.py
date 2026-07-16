@@ -77,12 +77,9 @@ mcp = FastMCP(
         "verdade, então nunca confirme 'mensagem entregue' ao usuário só por causa do status "
         "200, deixe claro que é 'aceito pela API', entrega real não é garantida por esse status."
     ),
-    # Precisa ser IDÊNTICO ao path de resource_server_url acima — o SDK constrói as rotas de
-    # descoberta OAuth (.well-known/...) a partir de resource_server_url, e esse app é montado
-    # na RAIZ do FastAPI (main.py), sem prefixo adicional. Se os dois divergirem ou se algum
-    # prefixo for somado por fora, o path da descoberta (.well-known) fica duplicado/errado e
-    # o claude.ai não consegue completar o handshake OAuth (já vi isso acontecer testando).
-    streamable_http_path=f"/mcp/{settings.mcp_secret_path}/",
+    # "/" porque esse app inteiro (ferramentas + rotas OAuth) é montado sob /mcp/<segredo>
+    # em main.py — o prefixo já vem de fora, não precisa repetir aqui.
+    streamable_http_path="/",
 )
 
 GRAPH_BASE = f"https://graph.facebook.com/{settings.meta_graph_api_version}"

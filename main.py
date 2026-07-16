@@ -38,10 +38,13 @@ async def health():
 # /authorize aprova qualquer client automaticamente (uso pessoal, sem tela de login), então
 # o segredo no path é o que impede acesso de quem não tem a URL.
 #
-# Montado na RAIZ ("/"), e por ÚLTIMO — precisa vir depois de tudo acima, senão o mount
-# intercepta /health e os webhooks antes deles serem alcançados (Starlette casa rotas na
-# ordem em que foram registradas, e um Mount("/") combina com qualquer path).
+# TUDO (ferramentas + rotas OAuth: /register, /authorize, /token, /.well-known/...) fica
+# dentro do mesmo mount, sob o caminho secreto. Testei montar só as ferramentas ali e deixar
+# as rotas OAuth na raiz do domínio (mais "correto" pro RFC 8414), mas o claude.ai não usa o
+# registration_endpoint absoluto da descoberta — ele sempre tenta POST <connector>/register
+# relativo ao próprio caminho do Connector (confirmado nos logs de produção). Então tudo
+# precisa estar aninhado junto.
 if settings.mcp_secret_path:
-    app.mount("/", mcp.streamable_http_app())
+    app.mount(f"/mcp/{settings.mcp_secret_path}", mcp.streamable_http_app())
 else:
     print("AVISO: MCP_SECRET_PATH não configurado — servidor MCP do WhatsApp não foi montado.")
