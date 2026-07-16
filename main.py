@@ -46,34 +46,64 @@ async def health():
 # relativo ao próprio caminho do Connector (confirmado nos logs de produção). Então tudo
 # precisa estar aninhado junto.
 if settings.mcp_secret_path:
+    _secret = settings.mcp_secret_path
+    _prefix = f"/mcp/{_secret}"
     _mcp_app = mcp.streamable_http_app()
-    _mount = Mount(f"/mcp/{settings.mcp_secret_path}", app=_mcp_app)
+    _mount = Mount(_prefix, app=_mcp_app)
 
-    class _SemBarraFinal:
-        """O claude.ai testa a URL do Connector com POST /mcp/<segredo> (SEM barra) e não
-        segue o redirect 307 que o Mount manda por padrão (a rota interna exige a barra) —
-        ele só reporta "não foi possível conectar", sem tentar de novo.
+    class _ReescreverEDelegar:
+        """O claude.ai tenta várias convenções diferentes pra descobrir/registrar OAuth —
+        algumas relativas ao caminho do Connector, outras na raiz do domínio, com e sem
+        barra final — e não segue redirects nem cai pra próxima tentativa se a primeira
+        rota "certa" (pelo RFC) não existir. Confirmado nos logs de produção, tentativa a
+        tentativa, quais formatos ele realmente usa.
 
-        Registrar a mesma rota/endpoint direto (sem Mount) pra esse caminho exato quebrava a
-        leitura do token pela auth middleware (scope/root_path diferente do que ela espera).
-        Em vez disso, reescreve o path adicionando a barra e reusa o `Mount.matches()` de
-        verdade — o mesmíssimo caminho de código que já funciona pra .../<segredo>/."""
+        Em vez de adivinhar mais, cada formato observado ganha uma rota explícita aqui que
+        reescreve o path pro caminho interno de verdade (dentro do mount /mcp/<segredo>) e
+        delega via `Mount.matches()` — o mesmo caminho de código que já funciona, só
+        redirecionado por dentro em vez de por HTTP (registrar a rota/endpoint direto, sem
+        passar pelo Mount, quebrava a leitura do token pela auth middleware)."""
 
-        def __init__(self, mount: Mount) -> None:
+        def __init__(self, mount: Mount, caminho_interno: str) -> None:
             self.mount = mount
+            self.caminho_interno = caminho_interno
 
         async def __call__(self, scope, receive, send):
             scope = dict(scope)
-            scope["path"] = scope["path"] + "/"
-            if scope.get("raw_path"):
-                scope["raw_path"] = scope["raw_path"] + b"/"
-            match, child_scope = self.mount.matches(scope)
+            scope["path"] = self.caminho_interno
+            scope.pop("raw_path", None)
+            _, child_scope = self.mount.matches(scope)
             merged_scope = {**scope, **child_scope}
             await child_scope["endpoint"](merged_scope, receive, send)
 
+    def _rota(caminho_externo: str, caminho_interno: str) -> Route:
+        return Route(caminho_externo, endpoint=_ReescreverEDelegar(_mount, caminho_interno))
+
+    # Formatos observados nos logs reais do claude.ai, em tentativas diferentes:
+    app.router.routes.append(_rota(_prefix, f"{_prefix}/"))  # POST sem barra
     app.router.routes.append(
-        Route(f"/mcp/{settings.mcp_secret_path}", endpoint=_SemBarraFinal(_mount))
+        _rota(
+            f"/.well-known/oauth-protected-resource{_prefix}/",
+            f"{_prefix}/.well-known/oauth-protected-resource{_prefix}/",
+        )
     )
+    app.router.routes.append(
+        _rota(
+            f"/.well-known/oauth-protected-resource{_prefix}",
+            f"{_prefix}/.well-known/oauth-protected-resource{_prefix}/",
+        )
+    )
+    app.router.routes.append(
+        _rota("/.well-known/oauth-protected-resource", f"{_prefix}/.well-known/oauth-protected-resource{_prefix}/")
+    )
+    app.router.routes.append(
+        _rota("/.well-known/oauth-authorization-server", f"{_prefix}/.well-known/oauth-authorization-server")
+    )
+    app.router.routes.append(_rota("/register", f"{_prefix}/register"))
+    app.router.routes.append(_rota("/authorize", f"{_prefix}/authorize"))
+    app.router.routes.append(_rota("/token", f"{_prefix}/token"))
+    app.router.routes.append(_rota("/revoke", f"{_prefix}/revoke"))
+
     app.router.routes.append(_mount)
 else:
     print("AVISO: MCP_SECRET_PATH não configurado — servidor MCP do WhatsApp não foi montado.")
