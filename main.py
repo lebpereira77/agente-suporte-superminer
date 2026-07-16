@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.routing import Mount, Route
 
 from config import settings
 from database import init_db
@@ -45,6 +46,34 @@ async def health():
 # relativo ao próprio caminho do Connector (confirmado nos logs de produção). Então tudo
 # precisa estar aninhado junto.
 if settings.mcp_secret_path:
-    app.mount(f"/mcp/{settings.mcp_secret_path}", mcp.streamable_http_app())
+    _mcp_app = mcp.streamable_http_app()
+    _mount = Mount(f"/mcp/{settings.mcp_secret_path}", app=_mcp_app)
+
+    class _SemBarraFinal:
+        """O claude.ai testa a URL do Connector com POST /mcp/<segredo> (SEM barra) e não
+        segue o redirect 307 que o Mount manda por padrão (a rota interna exige a barra) —
+        ele só reporta "não foi possível conectar", sem tentar de novo.
+
+        Registrar a mesma rota/endpoint direto (sem Mount) pra esse caminho exato quebrava a
+        leitura do token pela auth middleware (scope/root_path diferente do que ela espera).
+        Em vez disso, reescreve o path adicionando a barra e reusa o `Mount.matches()` de
+        verdade — o mesmíssimo caminho de código que já funciona pra .../<segredo>/."""
+
+        def __init__(self, mount: Mount) -> None:
+            self.mount = mount
+
+        async def __call__(self, scope, receive, send):
+            scope = dict(scope)
+            scope["path"] = scope["path"] + "/"
+            if scope.get("raw_path"):
+                scope["raw_path"] = scope["raw_path"] + b"/"
+            match, child_scope = self.mount.matches(scope)
+            merged_scope = {**scope, **child_scope}
+            await child_scope["endpoint"](merged_scope, receive, send)
+
+    app.router.routes.append(
+        Route(f"/mcp/{settings.mcp_secret_path}", endpoint=_SemBarraFinal(_mount))
+    )
+    app.router.routes.append(_mount)
 else:
     print("AVISO: MCP_SECRET_PATH não configurado — servidor MCP do WhatsApp não foi montado.")
